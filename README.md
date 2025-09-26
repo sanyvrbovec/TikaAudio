@@ -1,5 +1,6 @@
 Tika Audio v1.0
 Tika Audio v1.0 je jednostavan, ali moćan audio editor koji radi izravno u vašem web pregledniku. Dizajniran je za preciznu manipulaciju zvuka na razini pojedinačnog sample-a, koristeći interno 32-bitno float procesiranje kako bi se osigurala maksimalna kvaliteta i izbjegli gubici prilikom obrade.
+<img width="1302" height="674" alt="image" src="https://github.com/user-attachments/assets/7c4aad8f-6671-4af2-a27c-48a88b3bc529" />
 
 Ovaj alat je napravljen kao jedna samostalna HTML datoteka, bez vanjskih ovisnosti, što ga čini izuzetno prenosivim i lakim za korištenje.
 
