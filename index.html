@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tika Audio v1.0 — Sample-level Audio Editor</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#0b1220; --accent:#5eead4; --muted:#9aa4b2; --card:#0e1622;
+  }
+  html,body{height:100%; margin:0; font-family:Inter,Roboto,Arial; background:linear-gradient(180deg,#071228 0%, #071725 100%); color:#dbe7ef;}
+  .app{max-width:1200px; margin:18px auto; padding:18px; border-radius:12px;}
+  header{display:flex;align-items:center;gap:16px;margin-bottom:12px; flex-wrap: wrap;}
+  h1{font-size:18px;margin:0;color:var(--accent)}
+  .controls{display:flex;gap:10px; align-items:center; flex-wrap:wrap}
+  button{background:linear-gradient(180deg,#0f1b2a,#08111a); color:var(--accent); border:1px solid rgba(94,234,212,.08); padding:8px 10px;border-radius:8px; cursor:pointer; transition: background-color 0.2s, transform 0.2s;}
+  button:disabled{background:rgba(255,255,255,.03); color:var(--muted); cursor:not-allowed; border-color: transparent;}
+  button:hover:not(:disabled){background-color:#1a2b3c; transform: translateY(-1px);}
+  button.secondary{color:var(--muted); background:transparent; border:1px solid rgba(255,255,255,.03)}
+  .panel{background:rgba(255,255,255,.02); padding:12px; border-radius:10px; box-shadow: 0 6px 18px rgba(2,6,23,.6)}
+  .row{display:flex;gap:12px; align-items:center}
+  #waveContainer{position:relative; width:100%; height:320px; margin-top:12px; border-radius:8px; overflow:hidden; background:linear-gradient(180deg,#071722,#041018); cursor: grab; touch-action: none;}
+  #waveContainer:active {cursor: grabbing;}
+  canvas{display:block;width:100%; height:100%}
+  #playhead{position:absolute; top:0; bottom:0; width:2px; background:linear-gradient(180deg, rgba(94,234,212,.95), rgba(94,234,212,.35)); left:0; transform:translateX(-1px); pointer-events: none;}
+  .toolbar{display:flex; gap:8px; align-items:center; margin-top:12px; flex-wrap:wrap}
+  input[type=range]{width:150px}
+  .info{font-size:13px;color:var(--muted)}
+  .rightcol{display:flex;flex-direction:column;gap:10px; min-width:260px}
+  .layout{display:flex; gap:12px; flex-wrap: wrap;}
+  .bigbtn{padding:10px 14px; font-weight:600}
+  .chip{background:rgba(255,255,255,.03); padding:6px 8px; border-radius:8px; color:var(--muted); font-size:13px}
+  footer{margin-top:16px;color:var(--muted); font-size:13px; text-align: center;}
+  .danger{color:#ff7b7b}
+  label{font-size:13px;color:var(--muted); display: inline-flex; align-items: center; gap: 4px;}
+  select, input[type=number] { background: #071228; border: 1px solid rgba(255,255,255,.1); color: #dbe7ef; border-radius: 4px; padding: 4px;}
+  #tooltip{position:absolute; display:none; background: #071228; border: 1px solid var(--accent); padding: 4px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; z-index: 10; white-space: pre;}
+
+  @media (max-width: 800px) {
+    .app { padding: 8px; margin: 0; }
+    .layout { flex-direction: column; }
+    .rightcol { min-width: 100%; order: 3; } /* Stavi desnu kolonu na dno */
+    .toolbar { justify-content: space-around; }
+    h1 { font-size: 16px; }
+  }
+
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Tika Audio v1.0</h1>
+    <div class="controls">
+      <label class="chip"> Lossless 32-bit float processing pipeline</label>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div style="flex:1; min-width: 300px;">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between; flex-wrap: wrap;">
+          <div style="display:flex;gap:8px;align-items:center; flex-wrap: wrap;">
+            <input id="fileInput" type="file" accept="audio/*" style="display:none;" />
+            <button id="uploadBtn">📂 Učitaj fajl</button>
+            <button id="playBtn" class="bigbtn" disabled>▶️</button>
+            <button id="stopBtn" disabled>⏹</button>
+            <button id="goToStartBtn" disabled>⏮</button>
+            <button id="undoBtn" disabled>↩️</button>
+            <button id="redoBtn" disabled>↪️</button>
+            <button id="insertMarkerBtn" disabled>➕</button>
+            <button id="deleteMarkersBtn" disabled class="secondary">🗑️</button>
+          </div>
+          <div style="text-align:right; margin-top: 8px; width: 100%;">
+            <div class="info" id="fileInfo">Nema učitanog fajla</div>
+          </div>
+        </div>
+
+        <div id="waveContainer">
+          <canvas id="wave" ></canvas>
+          <div id="playhead" style="left:0"></div>
+          <div id="tooltip"></div>
+        </div>
+
+        <div class="toolbar">
+          <label>Zoom: <input id="zoomSlider" type="range" min="0" max="1000" value="500"></label>
+          <label>Pan: <input id="panSlider" type="range" min="0" max="1000" value="0"></label>
+          <label>Alat:
+            <select id="toolSelect">
+              <option value="cursor">Kursor</option>
+              <option value="draw">Olovka</option>
+            </select>
+          </label>
+          <label>Kanal:
+            <select id="channelSelect"><option value="all">Svi</option></select>
+          </label>
+          <label>Pojačanje (%):
+            <input id="scaleInput" type="number" value="100" style="width:70px"> <button id="applyScale" disabled>OK</button>
+          </label>
+          <label>Normaliziraj na:
+            <input id="normInput" type="number" value="-0.1" step="0.1" style="width:70px">dB <button id="applyNorm" disabled>OK</button>
+          </label>
+          <div style="display:flex; gap: 8px; align-items:center; margin-left: auto;">
+            <label>Format:
+              <select id="exportBitDepth">
+                <option value="16">16-bit WAV</option>
+                <option value="24">24-bit WAV</option>
+              </select>
+            </label>
+            <button id="exportBtn" class="bigbtn" disabled>📥 Izvezi</button>
+          </div>
+        </div>
+        <div style="margin-top:8px" class="info">Pri velikom zoomu, odaberite "Olovka" alat da možete pomicati samplove mišem ili dodati marker.</div>
+      </div>
+    </div>
+
+    <div class="rightcol">
+      <div class="panel">
+        <div style="font-weight:600">Session</div>
+        <div style="margin-top:8px">
+          <div><span class="info">Samplerate:</span> <span id="sr">—</span></div>
+          <div><span class="info">Channels:</span> <span id="ch">—</span></div>
+          <div><span class="info">Length:</span> <span id="len">—</span></div>
+          <div><span class="info">Markers:</span> <span id="markersCount">0</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div style="font-weight:600">Brzi workflow</div>
+        <ol style="padding-left:16px; font-size: 14px; color: var(--muted)">
+          <li>Učitaj audio fajl.</li>
+          <li>Zumiraj i koristi "Olovku" za precizne izmjene.</li>
+          <li>Normaliziraj ili pojačavaj. Sve akcije se mogu poništiti.</li>
+          <li>Izvezi u 16-bit ili 24-bit WAV formatu.</li>
+        </ol>
+      </div>
+       <div class="panel">
+        <div style="font-weight:600">Savjeti</div>
+        <ul style="padding-left:16px; font-size: 14px; color: var(--muted)">
+        
+          <li>Marker je samo sample s vrijednošću -1.0.</li>
+          <li>Izvoz automatski popravlja vrijednosti markera za čist audio.</li>
+          <li class="info danger">Rad s velikim datotekama može zahtijevati više RAM-a.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <footer style="padding-bottom: 20px;">Tika Audio v1.0 — Demo. © 2025 Đurđa. Nenad Dobrijevic 0921111222.</footer>
+</div>
+
+<script>
+(async function(){
+  // --- Elementi ---
+  const fileInput = document.getElementById('fileInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const playBtn = document.getElementById('playBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const goToStartBtn = document.getElementById('goToStartBtn');
+  const insertMarkerBtn = document.getElementById('insertMarkerBtn');
+  const deleteMarkersBtn = document.getElementById('deleteMarkersBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const waveContainer = document.getElementById('waveContainer');
+  const canvas = document.getElementById('wave');
+  const playheadEl = document.getElementById('playhead');
+  const tooltip = document.getElementById('tooltip');
+  const zoomSlider = document.getElementById('zoomSlider');
+  const panSlider = document.getElementById('panSlider');
+  const toolSelect = document.getElementById('toolSelect');
+  const scaleInput = document.getElementById('scaleInput');
+  const applyScale = document.getElementById('applyScale');
+  const normInput = document.getElementById('normInput');
+  const applyNorm = document.getElementById('applyNorm');
+  const fileInfo = document.getElementById('fileInfo');
+  const srEl = document.getElementById('sr');
+  const chEl = document.getElementById('ch');
+  const lenEl = document.getElementById('len');
+  const markersCountEl = document.getElementById('markersCount');
+  const channelSelect = document.getElementById('channelSelect');
+
+  // --- Audio State ---
+  let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let channels = [];
+  let markers = []; 
+  let sampleRate = 44100;
+  let duration = 0;
+  let playingSource = null;
+  let isPlaying = false;
+  let currentPlayheadSample = 0;
+  
+  // --- Undo/Redo State ---
+  let undoStack = [];
+  let redoStack = [];
+
+  // --- UI State ---
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext('2d');
+  let samplesPerPixel = 200;
+  let viewOffsetSamples = 0;
+  let mouseDown = false;
+  let dragStart = null;
+  let needRender = true;
+  let isDraggingSample = false;
+  let draggedSampleIndex = -1;
+
+  function init() {
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    setupEventListeners();
+    updateUIState(false);
+    requestAnimationFrame(renderLoop);
+  }
+
+  function saveStateForUndo() {
+    undoStack.push({
+      channels: channels.map(ch => new Float32Array(ch)),
+      markers: JSON.parse(JSON.stringify(markers))
+    });
+    redoStack = [];
+    if(undoStack.length > 30) undoStack.shift();
+    updateUndoRedoButtons();
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push({
+        channels: channels.map(ch => new Float32Array(ch)),
+        markers: JSON.parse(JSON.stringify(markers))
+    });
+    const prevState = undoStack.pop();
+    channels = prevState.channels;
+    markers = prevState.markers;
+    updateAllInfo();
+    updateUndoRedoButtons();
+    needRender = true;
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push({
+        channels: channels.map(ch => new Float32Array(ch)),
+        markers: JSON.parse(JSON.stringify(markers))
+    });
+    const nextState = redoStack.pop();
+    channels = nextState.channels;
+    markers = nextState.markers;
+    updateAllInfo();
+    updateUndoRedoButtons();
+    needRender = true;
+  }
+
+  function updateUndoRedoButtons(){
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function setupEventListeners() {
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+        loadFile(e);
+        e.target.value = null; // Omogućuje ponovno učitavanje iste datoteke
+    });
+    playBtn.addEventListener('click', togglePlay);
+    stopBtn.addEventListener('click', stopPlayback);
+    goToStartBtn.addEventListener('click', goToStart);
+    undoBtn.addEventListener('click', undo);
+    redoBtn.addEventListener('click', redo);
+    insertMarkerBtn.addEventListener('click', () => addMarkerAtSample(currentPlayheadSample));
+    deleteMarkersBtn.addEventListener('click', deleteMarkers);
+    zoomSlider.addEventListener('input', handleZoom);
+    panSlider.addEventListener('input', handlePan);
+    
+    // Mouse events
+    canvas.addEventListener('mousedown', handleMouseDown, { passive: false });
+    window.addEventListener('mousemove', handleMouseMove, { passive: false });
+    window.addEventListener('mouseup', handleMouseUp, { passive: false });
+    
+    // Touch events
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    
+    canvas.addEventListener('wheel', handleWheelZoom, { passive: false });
+    canvas.addEventListener('click', handleCanvasClick);
+    waveContainer.addEventListener('mousemove', handleTooltip);
+    waveContainer.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    applyScale.addEventListener('click', processScale);
+    applyNorm.addEventListener('click', processNormalize);
+    exportBtn.addEventListener('click', exportWav);
+  }
+
+  async function loadFile(e) {
+    stopPlayback(); // Prvo zaustavi reprodukciju
+
+    const f = e.target.files[0];
+    if(!f) return; // Korisnik je otkazao
+    
+    fileInfo.textContent = 'Učitavam ' + f.name + ' ...';
+    updateUIState(false);
+    try {
+      const ab = await f.arrayBuffer();
+      const decoded = await audioCtx.decodeAudioData(ab);
+      sampleRate = decoded.sampleRate;
+      channels = [];
+      for(let c=0; c<decoded.numberOfChannels; c++){
+        channels.push(new Float32Array(decoded.getChannelData(c)));
+      }
+      markers = [];
+      undoStack = [];
+      redoStack = [];
+      viewOffsetSamples = 0;
+      currentPlayheadSample = 0;
+      panSlider.value = 0;
+      updateAllInfo();
+      updateUIState(true);
+      updateUndoRedoButtons();
+      needRender = true;
+      fileInfo.textContent = 'Učitano: ' + f.name;
+    } catch(err) {
+      console.error(err);
+      fileInfo.textContent = 'Greška pri dekodiranju: ' + err.message;
+      updateUIState(false);
+    }
+  }
+
+  function resizeCanvas(){
+    const rect = waveContainer.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    needRender = true;
+  }
+
+  function renderLoop(){
+    if(needRender) renderWaveform();
+    requestAnimationFrame(renderLoop);
+  }
+
+  function renderWaveform(){
+    if(!channels.length) {
+      ctx.clearRect(0,0,canvas.width, canvas.height);
+      return;
+    }
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = '#071722';
+    ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath();
+    ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+    
+    const startSample = Math.floor(viewOffsetSamples);
+    
+    if (samplesPerPixel < 20) {
+      drawDetailedWaveform(w, h, startSample);
+    } else {
+      drawOverviewWaveform(w, h, startSample);
+    }
+    updatePlayheadPosition(w, startSample);
+    needRender = false;
+  }
+
+  function drawDetailedWaveform(w, h, startSample) {
+      const totalSamples = channels[0].length;
+      ctx.strokeStyle = 'rgba(94,234,212,0.8)';
+      ctx.lineWidth = 1;
+      const chCount = channels.length;
+      for (let c = 0; c < chCount; c++) {
+          const arr = channels[c];
+          const ch_h = h / chCount;
+          const y_offset = ch_h * (c + 0.5);
+          ctx.beginPath();
+          let firstVisisbleSample = true;
+          for (let px = 0; px < w; px++) {
+              const s_idx = Math.round(startSample + px * samplesPerPixel);
+              if (s_idx < 0 || s_idx >= totalSamples) continue;
+              const v = arr[s_idx] ?? 0;
+              const y = y_offset - (v * ch_h * 0.45);
+              if (firstVisisbleSample) {
+                  ctx.moveTo(px, y);
+                  firstVisisbleSample = false;
+              } else {
+                  ctx.lineTo(px, y);
+              }
+          }
+          ctx.stroke();
+
+          if (samplesPerPixel < 1) {
+              for (let s = Math.floor(startSample); s < startSample + w * samplesPerPixel; s++) {
+                  if (s < 0 || s >= totalSamples) continue;
+                  const x = (s - startSample) / samplesPerPixel;
+                  const v = channels[c][s] ?? 0;
+                  const y = y_offset - (v * ch_h * 0.45);
+                  ctx.fillStyle = markers.some(m => m.index === s) ? 'rgba(255, 100, 100, 0.9)' : '#5eead4';
+                  ctx.fillRect(x - 2, y - 2, 4, 4);
+              }
+          }
+      }
+  }
+
+  function drawOverviewWaveform(w, h, startSample) {
+      const totalSamples = channels[0].length;
+      const chCount = channels.length;
+      ctx.fillStyle = 'rgba(94,234,212,0.35)';
+      for(let px=0; px<w; px++){
+        const s0 = Math.floor(startSample + px*samplesPerPixel);
+        let s1 = Math.floor(startSample + (px+1)*samplesPerPixel);
+        if(s0 >= totalSamples) break;
+        if(s1 > totalSamples) s1 = totalSamples;
+        let min = 0, max = 0;
+        for(let s=s0; s<s1; s++){
+          for(let c=0; c<chCount; c++){
+              const v = channels[c][s] ?? 0;
+              if (v < min) min = v;
+              if (v > max) max = v;
+          }
+        }
+        const y1 = (1 - (max + 1)/2) * h;
+        const y2 = (1 - (min + 1)/2) * h;
+        ctx.fillRect(px, y1, 1, Math.max(1, y2-y1));
+      }
+  }
+  
+  function updatePlayheadPosition(w, startSample) {
+      const phX = (currentPlayheadSample - startSample) / samplesPerPixel;
+      playheadEl.style.left = Math.min(w-1, Math.max(0, phX)) + 'px';
+  }
+
+  function goToStart() {
+    currentPlayheadSample = 0;
+    viewOffsetSamples = 0;
+    clampViewOffset();
+    needRender = true;
+  }
+    
+  function handleZoom(e) {
+    const zoomValue = parseInt(e.target.value, 10);
+    const oldSamplesPerPixel = samplesPerPixel;
+    const centerSample = viewOffsetSamples + (canvas.clientWidth / 2) * oldSamplesPerPixel;
+    samplesPerPixel = Math.pow(1.01, 1000 - zoomValue) * 0.05;
+    viewOffsetSamples = centerSample - (canvas.clientWidth / 2) * samplesPerPixel;
+    clampViewOffset();
+    needRender = true;
+  }
+  
+  function handleWheelZoom(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const sampleUnderMouse = viewOffsetSamples + mouseX * samplesPerPixel;
+    const currentZoomValue = parseFloat(zoomSlider.value);
+    const newZoomValue = currentZoomValue - e.deltaY * 0.5;
+    zoomSlider.value = Math.max(0, Math.min(1000, newZoomValue));
+    samplesPerPixel = Math.pow(1.01, 1000 - zoomSlider.value) * 0.05;
+    viewOffsetSamples = sampleUnderMouse - mouseX * samplesPerPixel;
+    clampViewOffset();
+    needRender = true;
+  }
+
+  function handlePan(e) {
+    if(!channels.length) return;
+    const totalSamples = channels[0].length;
+    const maxOffset = Math.max(0, totalSamples - samplesPerPixel*canvas.clientWidth);
+    viewOffsetSamples = Math.floor((e.target.value / 1000) * maxOffset);
+    needRender = true;
+  }
+
+  function handleMouseDown(e) {
+    if(!channels.length) return;
+    dragStart = {x:e.clientX, offset:viewOffsetSamples};
+    const sampleIndex = getSampleFromX(e.clientX);
+    if(toolSelect.value === 'draw' && samplesPerPixel < 20){
+      saveStateForUndo();
+      isDraggingSample = true;
+      draggedSampleIndex = sampleIndex;
+      handleSampleDrag(e.clientX, e.clientY);
+    } else {
+      mouseDown = true;
+    }
+  }
+  
+  function handleMouseMove(e) {
+    if (isDraggingSample) {
+      handleSampleDrag(e.clientX, e.clientY);
+    } else if(mouseDown) {
+      const dx = e.clientX - dragStart.x;
+      viewOffsetSamples = dragStart.offset - (dx * samplesPerPixel);
+      clampViewOffset();
+      needRender = true;
+    }
+  }
+
+  function handleMouseUp() {
+    mouseDown = false;
+    isDraggingSample = false;
+    draggedSampleIndex = -1;
+  }
+  
+  function handleTouchStart(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    handleMouseDown({ clientX: touch.clientX, clientY: touch.clientY });
+  }
+
+  function handleTouchMove(e) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+  }
+
+  function handleTouchEnd(e) {
+      e.preventDefault();
+      handleMouseUp();
+  }
+  
+  function handleSampleDrag(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const y = clientY - rect.top;
+      const chCount = channels.length;
+      const chHeight = rect.height / chCount;
+      const targetChannel = Math.floor(y / chHeight);
+      if (targetChannel < 0 || targetChannel >= chCount) return;
+
+      const yInChannel = y - (targetChannel * chHeight);
+      const halfChHeight = chHeight / 2;
+      const value = -((yInChannel - halfChHeight) / (halfChHeight * 0.9));
+      const clampedValue = Math.max(-1, Math.min(1, value));
+      
+      channels[targetChannel][draggedSampleIndex] = clampedValue;
+      needRender = true;
+  }
+
+  function handleCanvasClick(e) {
+    if(!channels.length || isDraggingSample) return;
+    currentPlayheadSample = getSampleFromX(e.clientX);
+    needRender = true;
+  }
+  
+  function handleTooltip(e) {
+      if (samplesPerPixel >= 20 || !channels.length || isDraggingSample) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      const rect = waveContainer.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const sampleIndex = getSampleFromX(e.clientX);
+      const chCount = channels.length;
+      const chHeight = rect.height / chCount;
+      const targetChannel = Math.floor(y / chHeight);
+
+      if (sampleIndex < 0 || sampleIndex >= channels[0].length || targetChannel < 0 || targetChannel >= chCount) {
+        tooltip.style.display = 'none';
+        return;
+      }
+
+      const value = channels[targetChannel][sampleIndex];
+      tooltip.style.display = 'block';
+      tooltip.style.left = `${x + 15}px`;
+      tooltip.style.top = `${y}px`;
+      tooltip.textContent = `Sample: ${sampleIndex}\nVrijednost: ${value.toFixed(5)}`;
+  }
+
+  function clampViewOffset() {
+    const totalSamples = channels.length > 0 ? channels[0].length : 0;
+    const viewWidthInSamples = canvas.clientWidth * samplesPerPixel;
+    const maxOffset = Math.max(0, totalSamples - viewWidthInSamples);
+    viewOffsetSamples = Math.max(0, Math.min(viewOffsetSamples, maxOffset));
+    panSlider.value = maxOffset > 0 ? (viewOffsetSamples / maxOffset) * 1000 : 0;
+  }
+
+  function addMarkerAtSample(sampleIndex) {
+    if (!channels.length && sampleIndex > 0) return;
+    const insertionIndex = Math.max(0, Math.min(sampleIndex, channels[0].length));
+    
+    saveStateForUndo();
+
+    for (const m of markers) {
+      if (m.index >= insertionIndex) {
+        m.index++;
+      }
+    }
+
+    const selChannel = channelSelect.value;
+    markers.push({ index: insertionIndex, channel: selChannel });
+
+    for (let c = 0; c < channels.length; c++) {
+      const oldChannel = channels[c];
+      const newChannel = new Float32Array(oldChannel.length + 1);
+      newChannel.set(oldChannel.subarray(0, insertionIndex), 0);
+      newChannel[insertionIndex] = -1.0;
+      newChannel.set(oldChannel.subarray(insertionIndex), insertionIndex + 1);
+      channels[c] = newChannel;
+    }
+
+    updateAllInfo();
+    needRender = true;
+  }
+
+  function deleteMarkers() {
+    if (markers.length === 0) return;
+    saveStateForUndo();
+
+    const indicesToRemove = [...new Set(markers.map(m => m.index))].sort((a, b) => b - a);
+
+    for (const index of indicesToRemove) {
+      for (let c = 0; c < channels.length; c++) {
+        const oldChannel = channels[c];
+        if (index >= oldChannel.length) continue;
+
+        const newChannel = new Float32Array(oldChannel.length - 1);
+        newChannel.set(oldChannel.subarray(0, index), 0);
+        newChannel.set(oldChannel.subarray(index + 1), index);
+        channels[c] = newChannel;
+      }
+    }
+    markers.length = 0;
+    updateAllInfo();
+    needRender = true;
+  }
+
+  function processScale() {
+    saveStateForUndo();
+    const pct = parseFloat(scaleInput.value);
+    if(isNaN(pct)) return;
+    const factor = pct/100.0;
+    for(let c=0;c<channels.length;c++){
+      for(let i=0;i<channels[c].length;i++) channels[c][i] *= factor;
+    }
+    needRender = true;
+  }
+  
+  function processNormalize() {
+    saveStateForUndo();
+    const targetDb = parseFloat(normInput.value) || -0.1;
+    const targetLinear = Math.pow(10, targetDb / 20);
+    
+    let maxv = 0;
+    for(let c=0;c<channels.length;c++){
+      for(let i=0;i<channels[c].length;i++){
+        const v = Math.abs(channels[c][i]);
+        if(v > maxv) maxv = v;
+      }
+    }
+    if(maxv === 0) return;
+    const factor = targetLinear / maxv;
+    for(let c=0;c<channels.length;c++){
+      for(let i=0;i<channels[c].length;i++) channels[c][i] *= factor;
+    }
+    needRender = true;
+  }
+
+  function togglePlay() {
+    if (isPlaying) {
+      if (playingSource) playingSource.stop();
+    } else {
+      if (!channels.length) return;
+      const buf = audioCtx.createBuffer(channels.length, channels[0].length, sampleRate);
+      for(let c=0; c<channels.length; c++) buf.copyToChannel(channels[c], c);
+      
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      
+      const offsetSeconds = currentPlayheadSample / sampleRate;
+      src.start(0, offsetSeconds);
+      
+      playingSource = src;
+      isPlaying = true;
+      playBtn.textContent = '⏸ Pauza';
+      
+      const startedAt = audioCtx.currentTime - offsetSeconds;
+      requestAnimationFrame(() => updatePlayheadWhilePlaying(startedAt));
+      
+      src.onended = () => {
+        playingSource = null;
+        isPlaying = false;
+        playBtn.textContent = '▶️';
+        if (currentPlayheadSample >= channels[0].length-1) currentPlayheadSample=0;
+        needRender = true;
+      };
+    }
+  }
+
+  function stopPlayback() {
+    if (playingSource) {
+      playingSource.onended = null;
+      try { playingSource.stop(); } catch(e){}
+    }
+    playingSource = null;
+    isPlaying = false;
+    playBtn.textContent = '▶️';
+    needRender = true;
+  }
+  
+  function updatePlayheadWhilePlaying(startedAt) {
+    if(!isPlaying) return;
+    const elapsed = audioCtx.currentTime - startedAt;
+    currentPlayheadSample = Math.floor(elapsed * sampleRate);
+    
+    const w = canvas.clientWidth;
+    const viewWidthSamples = w * samplesPerPixel;
+    const playheadPosPx = (currentPlayheadSample - viewOffsetSamples) / samplesPerPixel;
+    if (playheadPosPx > w * 0.8 || playheadPosPx < w * 0.2) {
+        viewOffsetSamples = currentPlayheadSample - (viewWidthSamples / 2);
+        clampViewOffset();
+    }
+    
+    if(currentPlayheadSample >= channels[0].length) {
+      if(playingSource) playingSource.stop();
+    }
+    needRender = true;
+    requestAnimationFrame(() => updatePlayheadWhilePlaying(startedAt));
+  }
+  
+  function exportWav() {
+    const bitDepth = parseInt(document.getElementById('exportBitDepth').value, 10);
+    let outChannels = channels.map(c => new Float32Array(c));
+    
+    let tempMarkers = JSON.parse(JSON.stringify(markers));
+    if (tempMarkers.length > 0) {
+      const indicesToRemove = [...new Set(tempMarkers.map(m => m.index))].sort((a, b) => b - a);
+      for (const index of indicesToRemove) {
+          for (let c = 0; c < outChannels.length; c++){
+              const oldChannel = outChannels[c];
+              if (index >= oldChannel.length) continue;
+              
+              const newChannel = new Float32Array(oldChannel.length - 1);
+              newChannel.set(oldChannel.subarray(0, index), 0);
+              newChannel.set(oldChannel.subarray(index + 1), index);
+              outChannels[c] = newChannel;
+          }
+      }
+    }
+
+    const interleaved = interleave(outChannels);
+    const wavBytes = encodeWAV(interleaved, sampleRate, outChannels.length, bitDepth);
+    const blob = new Blob([wavBytes], {type:'audio/wav'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `export_${bitDepth}bit.wav`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function interleave(chArrays){
+    const len = chArrays[0].length;
+    const out = new Float32Array(len * chArrays.length);
+    for(let i=0; i<len; i++){
+      for(let c=0; c<chArrays.length; c++){
+        out[i*chArrays.length + c] = chArrays[c][i];
+      }
+    }
+    return out;
+  }
+
+  function encodeWAV(samples, sampleRate, numChannels, bitDepth = 16) {
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = samples.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    function writeString(offset, string) {
+      for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+    }
+    
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    if (bitDepth === 16) {
+        for (let i = 0; i < samples.length; i++, offset += 2) {
+            const s = Math.max(-1, Math.min(1, samples[i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        }
+    } else if (bitDepth === 24) {
+        for (let i = 0; i < samples.length; i++, offset += 3) {
+            const s = Math.max(-1, Math.min(1, samples[i]));
+            let val = Math.round(s * 8388607);
+            if (val < 0) val = 0x1000000 + val;
+            view.setUint8(offset, val & 0xff);
+            view.setUint8(offset + 1, (val >> 8) & 0xff);
+            view.setUint8(offset + 2, (val >> 16) & 0xff);
+        }
+    }
+    return buffer;
+  }
+
+  function getSampleFromX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    return Math.max(0, Math.min(channels[0].length - 1, Math.floor(viewOffsetSamples + x * samplesPerPixel)));
+  }
+
+  function updateAllInfo() {
+    if (!channels.length) return;
+    duration = channels[0].length / sampleRate;
+    srEl.textContent = sampleRate + ' Hz';
+    chEl.textContent = channels.length;
+    lenEl.textContent = duration.toFixed(3) + ' s';
+    markersCountEl.textContent = markers.length;
+    deleteMarkersBtn.disabled = markers.length === 0;
+    
+    channelSelect.innerHTML = '<option value="all">Svi</option>';
+    for(let i=0; i<channels.length; i++){
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = 'Kanal '+(i+1);
+      channelSelect.appendChild(opt);
+    }
+  }
+
+  function updateUIState(loaded) {
+    playBtn.disabled = !loaded;
+    stopBtn.disabled = !loaded;
+    goToStartBtn.disabled = !loaded;
+    insertMarkerBtn.disabled = !loaded;
+    deleteMarkersBtn.disabled = !loaded || markers.length === 0;
+    exportBtn.disabled = !loaded;
+    applyScale.disabled = !loaded;
+    applyNorm.disabled = !loaded;
+    if (!loaded) markersCountEl.innerText = '0';
+  }
+  
+  init();
+})();
+</script>
+</body>
+</html>
+
