@@ -136,7 +136,7 @@
        <div class="panel">
         <div style="font-weight:600">Savjeti</div>
         <ul style="padding-left:16px; font-size: 14px; color: var(--muted)">
-        
+          <li>Na iPhoneu, audio datoteke se nalaze u aplikaciji 'Datoteke' (Files), ne u galeriji fotografija.</li>
           <li>Marker je samo sample s vrijednošću -1.0.</li>
           <li>Izvoz automatski popravlja vrijednosti markera za čist audio.</li>
           <li class="info danger">Rad s velikim datotekama može zahtijevati više RAM-a.</li>
@@ -145,7 +145,7 @@
     </div>
   </div>
 
-  <footer style="padding-bottom: 20px;">Tika Audio v1.0 — Demo. © 2025 Đurđa. Nenad Dobrijevic 0921111222.</footer>
+  <footer style="padding-bottom: 20px;">Tika Audio v1.0 — Demo.</footer>
 </div>
 
 <script>
@@ -188,6 +188,8 @@
   let playingSource = null;
   let isPlaying = false;
   let currentPlayheadSample = 0;
+  let originalFilename = '';
+  let originalSampleRateFromFile = null;
   
   // --- Undo/Redo State ---
   let undoStack = [];
@@ -297,9 +299,45 @@
     if(!f) return; // Korisnik je otkazao
     
     fileInfo.textContent = 'Učitavam ' + f.name + ' ...';
+    originalFilename = f.name;
     updateUIState(false);
     try {
       const ab = await f.arrayBuffer();
+      
+      // Pokušaj čitanja originalnog sample rate-a iz WAV headera
+      originalSampleRateFromFile = null;
+      try {
+        const dataView = new DataView(ab);
+        if (
+            String.fromCharCode(dataView.getUint8(0), dataView.getUint8(1), dataView.getUint8(2), dataView.getUint8(3)) === 'RIFF' &&
+            String.fromCharCode(dataView.getUint8(8), dataView.getUint8(9), dataView.getUint8(10), dataView.getUint8(11)) === 'WAVE'
+        ) {
+            originalSampleRateFromFile = dataView.getUint32(24, true); // true for little-endian
+        }
+      } catch (err) {
+        console.warn("Nije moguće pročitati WAV header:", err);
+      }
+
+      // Zatvori stari AudioContext i stvori novi s originalnim sample rate-om ako je moguće
+      if (audioCtx.state !== 'closed') {
+        await audioCtx.close();
+      }
+      
+      const contextOptions = {};
+      if (originalSampleRateFromFile) {
+        contextOptions.sampleRate = originalSampleRateFromFile;
+      }
+
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
+        if (originalSampleRateFromFile && audioCtx.sampleRate !== originalSampleRateFromFile) {
+            console.warn(`Preglednik nije mogao postaviti sample rate na ${originalSampleRateFromFile}Hz. Koristi se zadani: ${audioCtx.sampleRate}Hz.`);
+        }
+      } catch (err) {
+        console.error("Nije moguće stvoriti AudioContext sa željenim sample rate-om, koristim zadani.", err);
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
       const decoded = await audioCtx.decodeAudioData(ab);
       sampleRate = decoded.sampleRate;
       channels = [];
@@ -742,7 +780,8 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `export_${bitDepth}bit.wav`;
+    const baseName = originalFilename.split('.').slice(0, -1).join('.') || 'export';
+    a.download = `${baseName}_edited_${bitDepth}bit.wav`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -810,9 +849,21 @@
   }
 
   function updateAllInfo() {
-    if (!channels.length) return;
+    if (!channels.length) {
+        srEl.textContent = '—';
+        chEl.textContent = '—';
+        lenEl.textContent = '—';
+        markersCountEl.textContent = '0';
+        return;
+    };
     duration = channels[0].length / sampleRate;
-    srEl.textContent = sampleRate + ' Hz';
+    
+    if (originalSampleRateFromFile && originalSampleRateFromFile !== sampleRate) {
+        srEl.innerHTML = `${sampleRate} Hz <span class="chip" style="font-size: 10px; padding: 2px 4px; margin-left: 5px;">Original: ${originalSampleRateFromFile} Hz</span>`;
+    } else {
+        srEl.textContent = sampleRate + ' Hz';
+    }
+    
     chEl.textContent = channels.length;
     lenEl.textContent = duration.toFixed(3) + ' s';
     markersCountEl.textContent = markers.length;
@@ -836,7 +887,11 @@
     exportBtn.disabled = !loaded;
     applyScale.disabled = !loaded;
     applyNorm.disabled = !loaded;
-    if (!loaded) markersCountEl.innerText = '0';
+    if (!loaded) {
+        markersCountEl.innerText = '0';
+        fileInfo.textContent = 'Nema učitanog fajla';
+        updateAllInfo();
+    }
   }
   
   init();
