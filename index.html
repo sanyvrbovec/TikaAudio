@@ -179,7 +179,7 @@
   const markersCountEl = document.getElementById('markersCount');
   const channelSelect = document.getElementById('channelSelect');
 
-  // --- Audio State ---
+
   let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   let channels = [];
   let markers = []; 
@@ -190,12 +190,11 @@
   let currentPlayheadSample = 0;
   let originalFilename = '';
   let originalSampleRateFromFile = null;
-  
-  // --- Undo/Redo State ---
+ 
   let undoStack = [];
   let redoStack = [];
 
-  // --- UI State ---
+
   const dpr = window.devicePixelRatio || 1;
   const ctx = canvas.getContext('2d');
   let samplesPerPixel = 200;
@@ -273,12 +272,12 @@
     zoomSlider.addEventListener('input', handleZoom);
     panSlider.addEventListener('input', handlePan);
     
-    // Mouse events
+  
     canvas.addEventListener('mousedown', handleMouseDown, { passive: false });
     window.addEventListener('mousemove', handleMouseMove, { passive: false });
     window.addEventListener('mouseup', handleMouseUp, { passive: false });
     
-    // Touch events
+   
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
@@ -899,4 +898,5 @@
 </script>
 </body>
 </html>
+
 
